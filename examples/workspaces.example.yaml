@@ -1,0 +1,18 @@
+# Copy this to ~/.agent-colab-queue/workspaces.yaml and edit.
+# (The agent can populate this via mcp__acq__register_workspace as well — no manual edit needed.)
+
+workspaces:
+  waymo2panorama:
+    repo_url: git@github.com:QiPan-Ronnie/Waymo2Panorama.git
+    repo_local: D:/BaiduSyncdisk/2024 to future/koi chen/experiments/Waymo2Panorama
+    drive_workspace_title: koi_waymo2pano_colab
+    jobs_dir_in_repo: jobs
+    git_ssh_key: C:/Users/14294/.ssh/id_ed25519_github_new
+
+  # Example — add more workspaces as you start new sub-projects:
+  # pi3:
+  #   repo_url: git@github.com:YourOrg/Pi3-experiments.git
+  #   repo_local: D:/path/to/Pi3-experiments
+  #   drive_workspace_title: koi_pi3_colab
+  #   jobs_dir_in_repo: jobs
+  #   git_ssh_key: C:/Users/14294/.ssh/id_ed25519_github_new

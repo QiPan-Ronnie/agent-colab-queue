@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-colab-queue"
+version = "0.1.0"
+description = "Reusable Drive-as-queue framework for connecting any LLM agent to long-running Colab jobs, with optional MCP server interface"
+requires-python = ">=3.10"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "QiPan-Ronnie" }]
+keywords = ["colab", "mcp", "agent", "queue", "drive", "research"]
+
+dependencies = [
+    "fastmcp>=2.14.5",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+
+[project.scripts]
+# Stand-alone MCP server (use this in claude.ai / Claude Code mcpServers config)
+agent-colab-queue = "agent_colab_queue.mcp_server:main"
+# CLI helpers (call from terminal for local debugging)
+acq = "agent_colab_queue.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["agent_colab_queue*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

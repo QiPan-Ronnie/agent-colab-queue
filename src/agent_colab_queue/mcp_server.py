@@ -15,16 +15,22 @@ Tools exposed to the agent (prefix mcp__acq__ in Claude Code):
 This server intentionally does NOT read from Drive — that's delegated to whichever
 Drive MCP the agent already has (e.g. the claude.ai Google Drive connector). We
 only emit Drive PATHS and search hints so the agent knows what to read.
+
+Patched 2026-05-19 (v0.1.1): every tool body is wrapped in a broad try/except
+so that an unexpected exception (subprocess timeout, decode error, etc.) returns
+an error dict instead of killing the FastMCP server process.
 """
 from __future__ import annotations
 
 import argparse
+import functools
 import logging
 import sys
 import tempfile
+import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Callable, Optional
 
 from fastmcp import FastMCP
 
@@ -42,6 +48,26 @@ from .config import (
 
 
 mcp = FastMCP(name="agent-colab-queue")
+
+
+def _safe_tool(fn: Callable[..., dict]) -> Callable[..., dict]:
+    """Decorator: catch any exception in a tool body and return it as an error dict.
+    Without this, an unhandled exception from a subprocess call etc. kills the
+    FastMCP server process (observed once during W2P-005 E2E test).
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs) -> dict[str, Any]:
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:  # noqa: BLE001
+            logging.exception("tool %s raised: %s", fn.__name__, e)
+            return {
+                "ok": False,
+                "error": f"{type(e).__name__}: {e}",
+                "traceback": traceback.format_exc(),
+                "tool": fn.__name__,
+            }
+    return wrapper
 
 
 # ---------- helpers ----------
@@ -86,6 +112,7 @@ def _workspace_to_info(ws: WorkspaceConfig) -> dict:
         "a local clone path, and a Drive folder title where the Colab worker writes results."
     ),
 )
+@_safe_tool
 def list_workspaces() -> dict:
     ws_map = load_workspaces()
     return {"workspaces": list(ws_map.keys()), "count": len(ws_map)}
@@ -98,6 +125,7 @@ def list_workspaces() -> dict:
         "agent's directory for navigating the queue."
     ),
 )
+@_safe_tool
 def workspace_info(name: str) -> dict:
     try:
         ws = load_workspace(name)
@@ -113,6 +141,7 @@ def workspace_info(name: str) -> dict:
         "instantiate via Worker.from_workspace(name) and the agent can submit jobs by name."
     ),
 )
+@_safe_tool
 def register_workspace(
     name: str,
     repo_url: str,
@@ -146,6 +175,7 @@ def register_workspace(
         "via its Drive MCP — this tool does NOT poll Drive itself."
     ),
 )
+@_safe_tool
 def submit_job(
     workspace: str,
     job_id: str,
@@ -186,6 +216,7 @@ def submit_job(
         "immediate stop, touch worker/stop.flag on Drive to halt the whole worker."
     ),
 )
+@_safe_tool
 def cancel_job(workspace: str, job_id: str, auto_push: bool = True) -> dict:
     try:
         ws = load_workspace(workspace)
@@ -208,6 +239,7 @@ def cancel_job(workspace: str, job_id: str, auto_push: bool = True) -> dict:
         "Drive — read it via your Drive MCP."
     ),
 )
+@_safe_tool
 def list_jobs(workspace: str) -> dict:
     try:
         ws = load_workspace(workspace)
@@ -222,6 +254,7 @@ def list_jobs(workspace: str) -> dict:
         "alive and to see where workspaces.yaml lives."
     ),
 )
+@_safe_tool
 def server_info() -> dict:
     return {
         "name": "agent-colab-queue",

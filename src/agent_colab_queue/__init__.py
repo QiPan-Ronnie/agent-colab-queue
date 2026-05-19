@@ -18,7 +18,7 @@ from .config import WorkspaceConfig, load_workspaces, load_workspace, save_works
 from .worker import Worker
 from .client import submit_job, cancel_job, list_jobs
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "JobSpec",

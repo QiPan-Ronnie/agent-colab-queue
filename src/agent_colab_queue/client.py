@@ -5,8 +5,10 @@ The MCP server in mcp_server.py wraps these. Library users can call them directl
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
+import traceback
 from pathlib import Path
 from typing import Optional
 
@@ -25,21 +27,54 @@ def _run_git(
     ssh_key: Optional[str] = None,
     user_name: Optional[str] = None,
     user_email: Optional[str] = None,
+    timeout: float = 60.0,
 ) -> tuple[int, str, str]:
+    """Run `git -C <repo> <args>`. NEVER raises — returns (rc, stdout, stderr).
+
+    Returns rc=124 on timeout, rc=127 if git binary not found, rc=-1 on any other
+    unexpected exception. stderr will explain what happened.
+
+    Patched 2026-05-19: previous version used `text=True` and didn't catch
+    TimeoutExpired/UnicodeDecodeError, which killed the FastMCP server process
+    when subprocess output couldn't be decoded with the locale's default encoding.
+    Now reads bytes and decodes with errors='replace'.
+    """
     env = os.environ.copy()
     if ssh_key:
         env["GIT_SSH_COMMAND"] = (
             f'ssh -i "{ssh_key}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new'
         )
     cmd = ["git", "-C", repo_local]
-    # Add config overrides per-command via -c flags
     if user_name:
         cmd += ["-c", f"user.name={user_name}"]
     if user_email:
         cmd += ["-c", f"user.email={user_email}"]
     cmd += args
-    r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=60)
-    return r.returncode, r.stdout, r.stderr
+
+    logging.debug("git: %s", cmd)
+    try:
+        r = subprocess.run(
+            cmd,
+            capture_output=True,           # bytes mode (text=False is default)
+            env=env,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        stdout = (e.stdout or b"").decode("utf-8", errors="replace")
+        stderr = (e.stderr or b"").decode("utf-8", errors="replace")
+        logging.warning("git timed out after %ss: %s", timeout, cmd)
+        return 124, stdout, stderr + f"\n[git timed out after {timeout}s]"
+    except FileNotFoundError as e:
+        logging.error("git binary not found: %s", e)
+        return 127, "", f"git binary not found: {e}"
+    except Exception as e:  # noqa: BLE001
+        logging.exception("unexpected subprocess error running git: %s", e)
+        return -1, "", f"unexpected error: {e!r}\n{traceback.format_exc()}"
+
+    stdout = (r.stdout or b"").decode("utf-8", errors="replace")
+    stderr = (r.stderr or b"").decode("utf-8", errors="replace")
+    return r.returncode, stdout, stderr
 
 
 def submit_job(

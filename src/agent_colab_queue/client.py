@@ -27,29 +27,49 @@ def _run_git(
     ssh_key: Optional[str] = None,
     user_name: Optional[str] = None,
     user_email: Optional[str] = None,
-    timeout: float = 60.0,
+    timeout: float = 15.0,
 ) -> tuple[int, str, str]:
     """Run `git -C <repo> <args>`. NEVER raises — returns (rc, stdout, stderr).
 
     Returns rc=124 on timeout, rc=127 if git binary not found, rc=-1 on any other
     unexpected exception. stderr will explain what happened.
 
-    Patched 2026-05-19: previous version used `text=True` and didn't catch
-    TimeoutExpired/UnicodeDecodeError, which killed the FastMCP server process
-    when subprocess output couldn't be decoded with the locale's default encoding.
-    Now reads bytes and decodes with errors='replace'.
+    v0.1.1 (bytes mode + manual decode + Timeout/FNF catch).
+    v0.1.2 root-cause fix: stdin=DEVNULL + GIT_TERMINAL_PROMPT=0 + GCM_INTERACTIVE=Never.
+      Symptom that motivated this: in v0.1.1, MCP-spawned `git add` hung for 200+ s
+      while the same command via Git Bash ran in 70 ms. Root cause is that
+      subprocess.run() without an explicit stdin gives the child a piped stdin
+      tied to the parent's idle fd, AND git on Windows checks
+      isatty() / prompts for credentials when invoked headless. The combination
+      makes git block forever waiting for input that will never come.
+      Setting stdin=DEVNULL + GIT_TERMINAL_PROMPT=0 + GCM_INTERACTIVE=Never tells
+      git "you're non-interactive, never prompt" and gives it nothing to read.
+      Default timeout also reduced 60s → 15s so MCP returns errors quickly rather
+      than burning the MCP client's request budget.
     """
     env = os.environ.copy()
     if ssh_key:
         env["GIT_SSH_COMMAND"] = (
             f'ssh -i "{ssh_key}" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new'
         )
+    # Force git into non-interactive mode (v0.1.2)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GCM_INTERACTIVE"] = "Never"     # Git Credential Manager (Windows) non-interactive
+    env["GIT_ASKPASS"] = "echo"           # any prompt becomes echo (no hang)
+    env.setdefault("LC_ALL", "C")          # stable English output
+    env.setdefault("LANG", "C")
+
     cmd = ["git", "-C", repo_local]
     if user_name:
         cmd += ["-c", f"user.name={user_name}"]
     if user_email:
         cmd += ["-c", f"user.email={user_email}"]
     cmd += args
+
+    # Suppress console window flash on Windows when uvx spawns this from a non-console parent
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
     logging.debug("git: %s", cmd)
     try:
@@ -59,6 +79,8 @@ def _run_git(
             env=env,
             timeout=timeout,
             check=False,
+            stdin=subprocess.DEVNULL,      # v0.1.2: never wait on parent's stdin
+            creationflags=creationflags,
         )
     except subprocess.TimeoutExpired as e:
         stdout = (e.stdout or b"").decode("utf-8", errors="replace")

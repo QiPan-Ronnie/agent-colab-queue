@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "agent-colab-queue"
-version = "0.1.1"
+version = "0.1.2"
 description = "Reusable Drive-as-queue framework for connecting any LLM agent to long-running Colab jobs, with optional MCP server interface"
 requires-python = ">=3.10"
 readme = "README.md"
